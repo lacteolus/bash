@@ -1,0 +1,50 @@
+#!/bin/bash
+
+
+export ORACLE_HOME="/opt/oracle"
+export TNS_ADMIN=$ORACLE_HOME
+export PATH=$ORACLE_HOME:$PATH
+export LD_LIBRARY_PATH=$ORACLE_HOME:$LD_LIBRARY_PATH
+export NLS_LANG=American_America.UTF8
+
+if [ $# -lt 6 ]
+then
+        echo "ERROR: Not enough arguments";
+        exit 255;
+fi
+
+host=${1}
+instance=${2}
+port=${3:-1521}
+user=${4}
+password=${5}
+par=${6}
+
+case $par in
+    getfree)
+return=$(${ORACLE_HOME}/sqlplus -S ${user}/${password}@//${host}:${port}/${instance} << EOF
+SET HEADING OFF;
+SET HEADSEP OFF;
+SET FEEDBACK OFF;
+ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '. ';
+SELECT (CASE WHEN PERCENT_USED> 100 THEN 0 ELSE (100-PERCENT_USED) END) PERCENT_FREE
+FROM (SELECT (SUM(PERCENT_SPACE_USED)-SUM(PERCENT_SPACE_RECLAIMABLE)) PERCENT_USED
+FROM V\$FLASH_RECOVERY_AREA_USAGE);
+EOF
+)
+
+if [[ $return == *"ORA-"* ]]
+then
+    exit 1
+else
+    echo $return
+fi
+
+exit 0
+;;
+    *)
+        echo "Incorrect parameter!!!" $host $instance $port $user $password $par
+exit 0
+;;
+esac
+exit 0
