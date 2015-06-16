@@ -1,0 +1,103 @@
+#!/bin/bash
+
+
+export ORACLE_HOME="/opt/oracle"
+export TNS_ADMIN=$ORACLE_HOME
+export PATH=$ORACLE_HOME:$PATH
+export LD_LIBRARY_PATH=$ORACLE_HOME:$LD_LIBRARY_PATH
+export NLS_LANG=American_America.UTF8
+
+if [ $# -lt 2 ]
+then
+        echo "ERROR: Not enough arguments";
+        exit 255;
+fi
+
+host=${1}
+instance=${2}
+port=${3:-1521}
+user=${4}
+password=${5}
+par=${6}
+tbs=${7:-SYSTEM}
+case $par in
+    list)
+return=$(${ORACLE_HOME}/sqlplus -S ${user}/${password}@//${host}:${port}/${instance} << EOF
+SET HEADING OFF;
+SET HEADSEP OFF;
+SET FEEDBACK OFF;
+SELECT tablespace_name FROM dba_tablespaces;
+EOF
+)
+
+if [[ $return == *"ORA-"* ]]
+then
+    exit 1
+fi
+
+# JSON format
+echo -e "{\n\t\"data\":["
+processedfirst=0
+for tbspace in $return
+do
+    if [ $processedfirst -eq 0 ];
+    then
+        printf "\t\t{\n\t\t\t\"{#TBSNAME}\": \"$tbspace\"\n\t\t}"
+        processedfirst=1
+    else
+        printf ",\n\t\t{\n\t\t\t\"{#TBSNAME}\": \"$tbspace\"\n\t\t}"
+    fi
+done
+echo -e "\n\t]\n}"
+exit 0
+;;
+    getused)
+return=$(${ORACLE_HOME}/sqlplus -S ${user}/${password}@//${host}:${port}/${instance} << EOF
+SET HEADING OFF;
+SET HEADSEP OFF;
+SET FEEDBACK OFF;
+ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '. ';
+SELECT ROUND(b.Gbytes_alloc - nvl(a.Gbytes_free,0), 3) AS used_Gbytes
+FROM (SELECT SUM(bytes)/1024/1024/1024 Gbytes_free, tablespace_name FROM sys.dba_free_space GROUP BY tablespace_name) a
+,(SELECT SUM(bytes)/1024/1024/1024 Gbytes_alloc, tablespace_name FROM sys.dba_data_files GROUP BY tablespace_name) b
+WHERE a.tablespace_name = b.tablespace_name AND b.tablespace_name = '$tbs';
+EOF
+)
+
+if [[ $return == *"ORA-"* ]]
+then
+    exit 1
+else
+    echo $return
+fi
+
+exit 0
+;;
+    getmax)
+return=$(${ORACLE_HOME}/sqlplus -S ${user}/${password}@//${host}:${port}/${instance} << EOF
+SET HEADING OFF;
+SET HEADSEP OFF;
+SET FEEDBACK OFF;
+ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '. ';
+SELECT ROUND(SUM(maxbytes/1024/1024/1024),2) AS total_GBytes
+FROM sys.dba_data_files
+WHERE tablespace_name = '$tbs'
+GROUP BY tablespace_name;
+EOF
+)
+
+if [[ $return == *"ORA-"* ]]
+then
+    exit 1
+else
+    echo $return
+fi
+
+exit 0
+;;
+    *)
+        echo "Incorrect parameter!!!" $host $instance $port $user $password $par $tbs
+exit 0
+;;
+esac
+exit 0
